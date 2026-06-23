@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cocina - JJ First Class</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div><h1>Cocina</h1><div class="subtitulo">Pedidos por preparar</div></div>
+</header>
+
+<main>
+  <div id="pin-gate" class="pin-pantalla">
+    <h2>PIN de cocina</h2>
+    <form>
+      <input type="password" inputmode="numeric" maxlength="6" autofocus>
+      <button class="principal" type="submit">Entrar</button>
+      <div class="error"></div>
+    </form>
+  </div>
+
+  <div id="contenido" style="display:none">
+    <div id="lista"></div>
+  </div>
+</main>
+
+<script src="pin.js"></script>
+<script>
+  async function cargar() {
+    const r = await fetch('/api/pedidos?estado=nuevo');
+    const pedidos = await r.json();
+    const cont = document.getElementById('lista');
+
+    if (pedidos.length === 0) {
+      cont.innerHTML = '<div class="vacio">No hay pedidos pendientes.</div>';
+      return;
+    }
+
+    cont.innerHTML = pedidos.map((p) => `
+      <div class="pedido-item">
+        <div class="numero">PEDIDO #${p.id}</div>
+        <ul>
+          ${p.items.map((i) => `<li>${itemDetalleCocina(i)}</li>`).join('')}
+        </ul>
+        <button class="principal" onclick="marcarListo(${p.id})">Listo, pasar a despacho</button>
+      </div>`).join('');
+  }
+
+  function itemDetalleCocina(i) {
+    const mods = [];
+    if (i.extraCarne) mods.push('EXTRA CARNE');
+    if (i.sinLechuga) mods.push('SIN LECHUGA');
+    if (i.sinSalsa) mods.push('SIN SALSA');
+    let html = `${i.nombre} x${i.cantidad}`;
+    if (mods.length) html += ` <strong style="color:#e25555">(${mods.join(', ')})</strong>`;
+    if (i.notas) html += `<br><span style="color:#8a8a8a">Nota: ${i.notas}</span>`;
+    return html;
+  }
+
+  async function marcarListo(id) {
+    await fetch(`/api/pedidos/${id}/avanzar`, { method: 'PATCH' });
+    cargar();
+  }
+
+  protegerPagina('cocina').then(() => {
+    cargar();
+    setInterval(cargar, 5000);
+  });
+</script>
+</body>
+</html>

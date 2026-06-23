@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Despacho - JJ First Class</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div><h1>Despacho</h1><div class="subtitulo">Pedidos listos en cocina, por empacar</div></div>
+</header>
+
+<main>
+  <div id="pin-gate" class="pin-pantalla">
+    <h2>PIN de despacho</h2>
+    <form>
+      <input type="password" inputmode="numeric" maxlength="6" autofocus>
+      <button class="principal" type="submit">Entrar</button>
+      <div class="error"></div>
+    </form>
+  </div>
+
+  <div id="contenido" style="display:none">
+    <div id="lista"></div>
+  </div>
+</main>
+
+<script src="pin.js"></script>
+<script>
+  async function cargar() {
+    const r = await fetch('/api/pedidos?estado=cocina_lista');
+    const pedidos = await r.json();
+    const cont = document.getElementById('lista');
+
+    if (pedidos.length === 0) {
+      cont.innerHTML = '<div class="vacio">No hay pedidos por despachar.</div>';
+      return;
+    }
+
+    cont.innerHTML = pedidos.map((p) => `
+      <div class="pedido-item">
+        <div class="numero">PEDIDO #${p.id}</div>
+        <div class="nombre-cliente">${p.cliente.nombre}</div>
+        <ul>
+          ${p.items.map((i) => `<li>${i.nombre} x${i.cantidad}</li>`).join('')}
+        </ul>
+        <div class="direccion">${pagoTexto(p)}</div>
+        <a class="boton-mapa" style="background:#25d366" href="${enlaceWhatsappCliente(p)}" target="_blank">Confirmar por WhatsApp</a>
+        <br>
+        <button class="principal" onclick="marcarDespachado(${p.id})" style="margin-top:10px">Despachado, pasar a domiciliario</button>
+      </div>`).join('');
+  }
+
+  function pagoTexto(p) {
+    if (p.metodoPago === 'transferencia') {
+      return '💳 Paga por transferencia (no lleva vuelto)';
+    }
+    return `💵 Paga en efectivo con $${p.montoPagado.toLocaleString('es-CO')} — <strong>Vuelto: $${p.vuelto.toLocaleString('es-CO')}</strong>`;
+  }
+
+  function numeroWhatsapp(telefono) {
+    const limpio = telefono.replace(/\D/g, '');
+    return limpio.length === 10 ? '57' + limpio : limpio;
+  }
+
+  function enlaceWhatsappCliente(p) {
+    const total = p.total.toLocaleString('es-CO');
+    const mensaje =
+      p.metodoPago === 'transferencia'
+        ? `Hola ${p.cliente.nombre}, te confirmamos que ya recibimos tu pago por transferencia del pedido #${p.id} por $${total}. ¡Ya va para despacho!`
+        : `Hola ${p.cliente.nombre}, tu pedido #${p.id} por $${total} va para despacho. Pagas en efectivo y llevamos vuelto de $${p.vuelto.toLocaleString('es-CO')}.`;
+    return `https://wa.me/${numeroWhatsapp(p.cliente.telefono)}?text=${encodeURIComponent(mensaje)}`;
+  }
+
+  async function marcarDespachado(id) {
+    await fetch(`/api/pedidos/${id}/avanzar`, { method: 'PATCH' });
+    cargar();
+  }
+
+  protegerPagina('despacho').then(() => {
+    cargar();
+    setInterval(cargar, 5000);
+  });
+</script>
+</body>
+</html>

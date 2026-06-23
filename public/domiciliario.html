@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Domiciliario - JJ First Class</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div><h1>Domiciliario</h1><div class="subtitulo">Pedidos por entregar</div></div>
+</header>
+
+<main>
+  <div id="pin-gate" class="pin-pantalla">
+    <h2>PIN de domiciliario</h2>
+    <form>
+      <input type="password" inputmode="numeric" maxlength="6" autofocus>
+      <button class="principal" type="submit">Entrar</button>
+      <div class="error"></div>
+    </form>
+  </div>
+
+  <div id="contenido" style="display:none">
+    <div id="lista"></div>
+  </div>
+</main>
+
+<script src="pin.js"></script>
+<script>
+  let direccionNegocio = '';
+
+  async function cargar() {
+    const r = await fetch('/api/pedidos?estado=despachado');
+    const pedidos = await r.json();
+    const cont = document.getElementById('lista');
+
+    if (pedidos.length === 0) {
+      cont.innerHTML = '<div class="vacio">No hay pedidos por entregar.</div>';
+      return;
+    }
+
+    let banner = '';
+    if (pedidos.length > 1) {
+      const direcciones = pedidos.map((p) => p.direccionEntrega);
+      const destino = direcciones[direcciones.length - 1];
+      const paradas = direcciones.slice(0, -1).join('|');
+      const enlaceCombinado = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+        direccionNegocio
+      )}&destination=${encodeURIComponent(destino)}&waypoints=${encodeURIComponent(paradas)}`;
+      banner = `
+        <div class="tarjeta" style="border-color:#d4af37">
+          <strong>Tienes ${pedidos.length} pedidos pendientes</strong>
+          <p style="margin:6px 0">La ruta sigue el orden en que salieron de despacho (pedido más antiguo primero).</p>
+          <a class="boton-mapa" href="${enlaceCombinado}" target="_blank">Ver ruta completa (${pedidos.length} paradas)</a>
+        </div>`;
+    }
+
+    const tarjetas = pedidos
+      .map((p) => {
+        const enlaceMapa = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+          direccionNegocio
+        )}&destination=${encodeURIComponent(p.direccionEntrega)}`;
+        return `
+      <div class="pedido-item">
+        <div class="numero">PEDIDO #${p.id}</div>
+        <div class="nombre-cliente">${p.cliente.nombre}</div>
+        <ul>
+          ${p.items.map((i) => `<li>${i.nombre} x${i.cantidad}</li>`).join('')}
+        </ul>
+        <div class="direccion">📍 ${p.direccionEntrega}</div>
+        <div class="direccion">${pagoTexto(p)}</div>
+        <a class="boton-mapa" href="${enlaceMapa}" target="_blank">Abrir ruta a este pedido</a>
+        <br>
+        <button class="principal" onclick="marcarEntregado(${p.id})" style="margin-top:10px">Entregado</button>
+      </div>`;
+      })
+      .join('');
+
+    cont.innerHTML = banner + tarjetas;
+  }
+
+  function pagoTexto(p) {
+    if (p.metodoPago === 'transferencia') {
+      return '💳 Ya pagó por transferencia';
+    }
+    return `💵 Cobra $${p.total.toLocaleString('es-CO')} — paga con $${p.montoPagado.toLocaleString('es-CO')}, vuelto $${p.vuelto.toLocaleString('es-CO')}`;
+  }
+
+  async function marcarEntregado(id) {
+    await fetch(`/api/pedidos/${id}/avanzar`, { method: 'PATCH' });
+    cargar();
+  }
+
+  protegerPagina('domiciliario').then(async () => {
+    const r = await fetch('/api/config');
+    const data = await r.json();
+    direccionNegocio = data.negocio.direccion;
+    cargar();
+    setInterval(cargar, 5000);
+  });
+</script>
+</body>
+</html>

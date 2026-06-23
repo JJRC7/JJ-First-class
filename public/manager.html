@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manager - JJ First Class</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  .card-metric { background: var(--tarjeta); border: 1px solid var(--tarjeta-borde); border-radius: 14px; padding: 16px 20px; flex: 1; min-width: 160px; }
+  .card-metric .valor { font-size: 1.7rem; font-weight: 800; color: var(--dorado); }
+  .card-metric .etiqueta { font-size: 0.85rem; color: var(--texto-dim); }
+  .badge-estado { padding: 3px 10px; border-radius: 20px; font-size: 0.78rem; font-weight: 700; color: white; }
+  .badge-nuevo { background: #b33232; }
+  .badge-cocina_lista { background: #b8862a; }
+  .badge-despachado { background: #1d5fa8; }
+  .badge-entregado { background: #2f8a43; }
+  main { max-width: 1000px; }
+  .tabs-ventas { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+  .tabs-ventas button {
+    flex: 1;
+    min-width: 90px;
+    padding: 10px;
+    border: 1px solid var(--tarjeta-borde);
+    background: #1f1f1f;
+    color: var(--texto);
+    border-radius: 10px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .tabs-ventas button.activa { background: var(--dorado); color: var(--negro); border-color: var(--dorado); }
+  #grafico-ventas { width: 100%; height: 220px; display: block; margin-bottom: 10px; }
+  .leyenda-grafico { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
+  .leyenda-grafico .item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--texto-dim); }
+  .leyenda-grafico .punto { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  #grafico-productos { width: 100%; height: 240px; display: block; margin-bottom: 10px; }
+  .selector-periodo { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--texto-dim); }
+  .selector-periodo input { width: auto; display: inline-block; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div><h1>Panel del Manager</h1><div class="subtitulo">Ventas, estados y productos más vendidos</div></div>
+</header>
+
+<main>
+  <div id="pin-gate" class="pin-pantalla">
+    <h2>PIN de manager</h2>
+    <form>
+      <input type="password" inputmode="numeric" maxlength="6" autofocus>
+      <button class="principal" type="submit">Entrar</button>
+      <div class="error"></div>
+    </form>
+  </div>
+
+  <div id="contenido" style="display:none">
+    <div class="cards">
+      <div class="card-metric">
+        <div class="valor" id="ventas-hoy-total">$0</div>
+        <div class="etiqueta" id="etiqueta-ventas">Ventas del día</div>
+      </div>
+      <div class="card-metric">
+        <div class="valor" id="ventas-hoy-pedidos">0</div>
+        <div class="etiqueta" id="etiqueta-pedidos">Pedidos entregados</div>
+      </div>
+    </div>
+
+    <a class="principal" style="display:block;text-align:center;text-decoration:none;margin-bottom:16px" href="/api/dashboard/exportar">⬇️ Descargar Excel de ventas</a>
+
+    <div class="tarjeta">
+      <h2>Clasificación del período seleccionado</h2>
+      <table>
+        <thead><tr><th>Producto</th><th>Cantidad</th><th>Con adicional</th><th>Total vendido</th></tr></thead>
+        <tbody id="tabla-productos-periodo"></tbody>
+      </table>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Pedidos (estado y destino)</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Cliente</th>
+            <th>Productos</th>
+            <th>Estado</th>
+            <th>Destino</th>
+            <th>Total</th>
+            <th>Hora</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-pedidos"></tbody>
+      </table>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Productos más vendidos</h2>
+      <canvas id="grafico-productos"></canvas>
+      <table>
+        <thead><tr><th>Producto</th><th>Cantidad vendida</th><th>Con adicional</th><th>Total vendido</th><th>Total en adicionales</th></tr></thead>
+        <tbody id="tabla-productos"></tbody>
+      </table>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Ventas por período</h2>
+
+      <div class="selector-periodo">
+        <input type="date" id="sel-dia">
+        <span id="sel-semana-grupo" style="display:none">
+          <input type="number" id="sel-semana-anio" min="2020" max="2100" style="width:90px;display:inline"> W
+          <input type="number" id="sel-semana-num" min="0" max="53" style="width:70px;display:inline">
+        </span>
+        <input type="month" id="sel-mes" style="display:none">
+        <input type="number" id="sel-anio" min="2020" max="2100" style="display:none">
+      </div>
+
+      <canvas id="grafico-ventas"></canvas>
+      <div class="leyenda-grafico" id="leyenda-ventas"></div>
+      <table>
+        <thead><tr><th>Hora</th><th>Comprador</th><th>Producto</th><th>Cantidad</th><th>Total</th></tr></thead>
+        <tbody id="tabla-ventas-periodo"></tbody>
+      </table>
+      <div class="tabs-ventas">
+        <button data-periodo="dia" class="activa">Día</button>
+        <button data-periodo="semana">Semana</button>
+        <button data-periodo="mes">Mes</button>
+        <button data-periodo="anio">Año</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="pin.js"></script>
+<script>
+  let periodoActivo = 'dia';
+  let coloresPorProducto = {};
+
+  function fmt(n) {
+    return Number(n || 0).toLocaleString('es-CO');
+  }
+
+  // Dibuja una barra 3D por cada producto vendido en el período seleccionado.
+  // Si no hubo ventas en ese período, el canvas se oculta por completo.
+  function dibujarGrafico(productos) {
+    const canvas = document.getElementById('grafico-ventas');
+    if (!productos || productos.length === 0) {
+      canvas.style.display = 'none';
+      return;
+    }
+    canvas.style.display = 'block';
+
+    const ctx = canvas.getContext('2d');
+    const ancho = canvas.clientWidth || 600;
+    const alto = 220;
+    canvas.width = ancho;
+    canvas.height = alto;
+    ctx.clearRect(0, 0, ancho, alto);
+
+    const max = Math.max(...productos.map((p) => p.total || 0), 1);
+    const margenInferior = 30;
+    const profundidad = 9;
+    const anchoBarra = ancho / productos.length;
+    const alturaDisponible = alto - margenInferior - 30;
+
+    productos.forEach((p, i) => {
+      const x = i * anchoBarra + anchoBarra * 0.22;
+      const w = anchoBarra * 0.5;
+      const yBase = alto - margenInferior;
+      const color = coloresPorProducto[p.productoId] || '#d4af37';
+
+      // sombra en la base
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(x + w / 2 + profundidad / 2, yBase + 3, w / 1.6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const montoBase = p.total - p.totalAdicionales;
+      const alturaBase = (montoBase / max) * alturaDisponible;
+      const alturaAdicional = (p.totalAdicionales / max) * alturaDisponible;
+
+      let yAcumulado = yBase;
+      if (alturaBase > 0) {
+        dibujarSegmento(ctx, x, yAcumulado - alturaBase, w, alturaBase, profundidad, color);
+        yAcumulado -= alturaBase;
+      }
+      if (alturaAdicional > 0) {
+        dibujarSegmento(ctx, x, yAcumulado - alturaAdicional, w, alturaAdicional, profundidad, aclarar(color, 1.5));
+        yAcumulado -= alturaAdicional;
+      }
+
+      ctx.fillStyle = '#ededed';
+      ctx.font = '11px Segoe UI';
+      ctx.textAlign = 'center';
+      if (p.total) ctx.fillText('$' + fmt(p.total), x + w / 2 + profundidad / 2, yAcumulado - profundidad - 6);
+
+      ctx.fillStyle = '#8a8a8a';
+      ctx.fillText(p.nombre.replace('Combo ', ''), x + w / 2, alto - 10);
+    });
+  }
+
+  function dibujarSegmento(ctx, x, yTop, w, alturaBarra, profundidad, color) {
+    const yBase = yTop + alturaBarra;
+
+    // cara lateral derecha (más oscura)
+    ctx.beginPath();
+    ctx.moveTo(x + w, yTop);
+    ctx.lineTo(x + w + profundidad, yTop - profundidad);
+    ctx.lineTo(x + w + profundidad, yBase - profundidad);
+    ctx.lineTo(x + w, yBase);
+    ctx.closePath();
+    ctx.fillStyle = oscurecer(color, 0.65);
+    ctx.fill();
+
+    // cara superior (más clara)
+    ctx.beginPath();
+    ctx.moveTo(x, yTop);
+    ctx.lineTo(x + profundidad, yTop - profundidad);
+    ctx.lineTo(x + w + profundidad, yTop - profundidad);
+    ctx.lineTo(x + w, yTop);
+    ctx.closePath();
+    ctx.fillStyle = aclarar(color, 1.3);
+    ctx.fill();
+
+    // cara frontal con degradado
+    const grad = ctx.createLinearGradient(0, yTop, 0, yBase);
+    grad.addColorStop(0, aclarar(color, 1.15));
+    grad.addColorStop(1, oscurecer(color, 0.85));
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, yTop, w, alturaBarra);
+  }
+
+  const COLORES_DONA = ['#d4af37', '#e25555', '#4a90d9', '#5fb878', '#b07cd4', '#e08e45'];
+
+  function oscurecer(hex, factor) {
+    const num = parseInt(hex.slice(1), 16);
+    const r = Math.round(((num >> 16) & 255) * factor);
+    const g = Math.round(((num >> 8) & 255) * factor);
+    const b = Math.round((num & 255) * factor);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function aclarar(hex, factor) {
+    const num = parseInt(hex.slice(1), 16);
+    const r = Math.min(255, Math.round(((num >> 16) & 255) * factor));
+    const g = Math.min(255, Math.round(((num >> 8) & 255) * factor));
+    const b = Math.min(255, Math.round((num & 255) * factor));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function dibujarGraficoProductos(productos) {
+    const canvas = document.getElementById('grafico-productos');
+    const ctx = canvas.getContext('2d');
+    const ancho = canvas.clientWidth || 600;
+    const alto = 240;
+    canvas.width = ancho;
+    canvas.height = alto;
+    ctx.clearRect(0, 0, ancho, alto);
+
+    if (productos.length === 0) {
+      ctx.fillStyle = '#8a8a8a';
+      ctx.font = '14px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.fillText('Sin productos vendidos todavía', ancho / 2, alto / 2);
+      return;
+    }
+
+    const totalCantidad = productos.reduce((acc, p) => acc + p.cantidad, 0);
+    const angosto = ancho < 380;
+    const radio = (angosto ? Math.min(ancho, alto * 0.7) : Math.min(alto, ancho * 0.5)) / 2 - 20;
+    const cx = angosto ? ancho / 2 : ancho * 0.28;
+    const cy = angosto ? radio + 16 : alto / 2;
+    const radioInterno = radio * 0.55;
+    const profundidad = 12;
+
+    // grosor (capa inferior, más oscura) para dar el efecto de dona 3D
+    let anguloGrosor = -Math.PI / 2;
+    productos.forEach((p) => {
+      const porcion = p.cantidad / totalCantidad;
+      const anguloFinal = anguloGrosor + porcion * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + profundidad);
+      ctx.arc(cx, cy + profundidad, radio, anguloGrosor, anguloFinal);
+      ctx.closePath();
+      ctx.fillStyle = oscurecer(coloresPorProducto[p.productoId] || '#d4af37', 0.55);
+      ctx.fill();
+      anguloGrosor = anguloFinal;
+    });
+
+    // cara superior de la dona
+    let anguloActual = -Math.PI / 2;
+    productos.forEach((p) => {
+      const porcion = p.cantidad / totalCantidad;
+      const anguloFinal = anguloActual + porcion * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, radio, anguloActual, anguloFinal);
+      ctx.closePath();
+      ctx.fillStyle = coloresPorProducto[p.productoId] || '#d4af37';
+      ctx.fill();
+      anguloActual = anguloFinal;
+    });
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radioInterno, 0, Math.PI * 2);
+    ctx.fillStyle = '#161616';
+    ctx.fill();
+
+    ctx.fillStyle = '#ededed';
+    ctx.font = 'bold 18px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillText(String(totalCantidad), cx, cy - 2);
+    ctx.font = '10px Segoe UI';
+    ctx.fillStyle = '#8a8a8a';
+    ctx.fillText('unidades', cx, cy + 14);
+
+    const leyendaX = angosto ? 16 : ancho * 0.56;
+    let leyendaY = angosto ? cy + radio + 24 : cy - (productos.length * 20) / 2;
+    productos.forEach((p) => {
+      const porcentaje = Math.round((p.cantidad / totalCantidad) * 100);
+      ctx.fillStyle = coloresPorProducto[p.productoId] || '#d4af37';
+      ctx.fillRect(leyendaX, leyendaY, 12, 12);
+      ctx.fillStyle = '#ededed';
+      ctx.font = '12px Segoe UI';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${p.nombre.replace('Combo ', '')} — ${p.cantidad} (${porcentaje}%)`, leyendaX + 18, leyendaY + 10);
+      leyendaY += 20;
+    });
+  }
+
+  function renderVentasPeriodo(periodo) {
+    periodoActivo = periodo;
+    document.querySelectorAll('.tabs-ventas button').forEach((b) => b.classList.toggle('activa', b.dataset.periodo === periodo));
+  }
+
+  function dibujarLeyendaVentas(productos) {
+    const cont = document.getElementById('leyenda-ventas');
+    if (!productos || productos.length === 0) {
+      cont.innerHTML = '';
+      return;
+    }
+    const hayAdicionales = productos.some((p) => p.totalAdicionales > 0);
+    cont.innerHTML =
+      productos
+        .map((p) => {
+          const color = coloresPorProducto[p.productoId] || '#d4af37';
+          return `<span class="item"><span class="punto" style="background:${color}"></span>${p.nombre.replace('Combo ', '')}</span>`;
+        })
+        .join('') +
+      (hayAdicionales
+        ? '<span class="item"><span class="punto" style="background:#f3da80"></span>Porción con adicional (más clara)</span>'
+        : '');
+  }
+
+  function semanaSQLite(fecha) {
+    const enero1 = new Date(fecha.getFullYear(), 0, 1);
+    let dia = enero1.getDay();
+    dia = dia === 0 ? 7 : dia;
+    const primerLunesOffset = dia === 1 ? 0 : 8 - dia;
+    const diasDesdeEnero1 = Math.floor((fecha - enero1) / 86400000);
+    if (diasDesdeEnero1 < primerLunesOffset) return 0;
+    return Math.floor((diasDesdeEnero1 - primerLunesOffset) / 7) + 1;
+  }
+
+  function establecerValoresPorDefecto() {
+    const hoy = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    document.getElementById('sel-dia').value = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+    document.getElementById('sel-mes').value = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}`;
+    document.getElementById('sel-anio').value = hoy.getFullYear();
+    document.getElementById('sel-semana-anio').value = hoy.getFullYear();
+    document.getElementById('sel-semana-num').value = semanaSQLite(hoy);
+  }
+
+  function mostrarSelector(periodo) {
+    document.getElementById('sel-dia').style.display = periodo === 'dia' ? 'inline-block' : 'none';
+    document.getElementById('sel-semana-grupo').style.display = periodo === 'semana' ? 'inline-block' : 'none';
+    document.getElementById('sel-mes').style.display = periodo === 'mes' ? 'inline-block' : 'none';
+    document.getElementById('sel-anio').style.display = periodo === 'anio' ? 'inline-block' : 'none';
+  }
+
+  function valorSeleccionActual(periodo) {
+    if (periodo === 'dia') return document.getElementById('sel-dia').value;
+    if (periodo === 'mes') return document.getElementById('sel-mes').value;
+    if (periodo === 'anio') return document.getElementById('sel-anio').value;
+    const anio = document.getElementById('sel-semana-anio').value;
+    const semana = document.getElementById('sel-semana-num').value;
+    return anio && semana !== '' ? `${anio}-W${String(semana).padStart(2, '0')}` : '';
+  }
+
+  const TITULOS_VENTA = { dia: 'Ventas del día', semana: 'Ventas de la semana', mes: 'Ventas del mes', anio: 'Ventas del año' };
+
+  async function consultaPuntual() {
+    const periodo = periodoActivo;
+    const valor = valorSeleccionActual(periodo);
+
+    // Se limpia todo lo que depende del período seleccionado (menos productos más vendidos).
+    document.getElementById('ventas-hoy-total').textContent = '…';
+    document.getElementById('ventas-hoy-pedidos').textContent = '…';
+    document.getElementById('etiqueta-ventas').textContent = TITULOS_VENTA[periodo];
+    document.getElementById('etiqueta-pedidos').textContent = 'Pedidos entregados';
+    document.getElementById('tabla-pedidos').innerHTML = '<tr><td colspan="7" class="vacio">Cargando…</td></tr>';
+    document.getElementById('tabla-productos-periodo').innerHTML = '<tr><td colspan="4" class="vacio">Cargando…</td></tr>';
+    document.getElementById('tabla-ventas-periodo').innerHTML = '<tr><td colspan="5" class="vacio">Cargando…</td></tr>';
+    document.getElementById('grafico-ventas').style.display = 'none';
+    document.getElementById('leyenda-ventas').innerHTML = '';
+    if (!valor) return;
+
+    const r = await fetch(`/api/dashboard/venta?periodo=${periodo}&valor=${encodeURIComponent(valor)}`);
+    const data = await r.json();
+
+    document.getElementById('ventas-hoy-total').textContent = '$' + fmt(data.total);
+    document.getElementById('ventas-hoy-pedidos').textContent = data.pedidos;
+
+    const tablaProductosPeriodo = document.getElementById('tabla-productos-periodo');
+    tablaProductosPeriodo.innerHTML = data.productosPeriodo.length
+      ? data.productosPeriodo
+          .map(
+            (pr) =>
+              `<tr><td>${pr.nombre}</td><td>${pr.cantidad}</td><td>${pr.cantidadConAdicional}</td><td>$${fmt(pr.total)}</td></tr>`
+          )
+          .join('')
+      : '<tr><td colspan="4" class="vacio">No se vendió nada en este período.</td></tr>';
+
+    const tablaPedidos = document.getElementById('tabla-pedidos');
+    tablaPedidos.innerHTML = data.pedidosPeriodo.length
+      ? data.pedidosPeriodo
+          .map((p) => {
+            const productos = p.items.map((i) => `${i.nombre} x${i.cantidad}`).join(', ');
+            const hora = p.creadoEn.slice(11, 16);
+            return `
+        <tr>
+          <td>#${p.id}</td>
+          <td>${p.cliente.nombre}</td>
+          <td>${productos}</td>
+          <td><span class="badge-estado badge-${p.estado}">${p.estadoLegible}</span></td>
+          <td>${p.direccionEntrega}</td>
+          <td>$${fmt(p.total)}</td>
+          <td>${hora}</td>
+        </tr>`;
+          })
+          .join('')
+      : '<tr><td colspan="7" class="vacio">No hay pedidos en este período.</td></tr>';
+
+    const tablaVentasIndividuales = document.getElementById('tabla-ventas-periodo');
+    tablaVentasIndividuales.innerHTML = data.ventasIndividuales.length
+      ? data.ventasIndividuales
+          .map(
+            (v) =>
+              `<tr><td>${v.hora}</td><td>${v.comprador}</td><td>${v.producto}</td><td>${v.cantidad}</td><td>$${fmt(v.total)}</td></tr>`
+          )
+          .join('')
+      : '<tr><td colspan="5" class="vacio">No hubo ventas en este período.</td></tr>';
+
+    dibujarGrafico(data.productosPeriodo);
+    dibujarLeyendaVentas(data.productosPeriodo);
+  }
+
+  document.querySelectorAll('.tabs-ventas button').forEach((b) =>
+    b.addEventListener('click', () => {
+      renderVentasPeriodo(b.dataset.periodo);
+      mostrarSelector(b.dataset.periodo);
+      consultaPuntual();
+    })
+  );
+
+  ['sel-dia', 'sel-mes', 'sel-anio', 'sel-semana-anio', 'sel-semana-num'].forEach((id) =>
+    document.getElementById(id).addEventListener('change', consultaPuntual)
+  );
+
+  async function cargar() {
+    const r = await fetch('/api/dashboard');
+    const data = await r.json();
+
+    coloresPorProducto = {};
+    data.productosMasVendidos.forEach((p, i) => {
+      coloresPorProducto[p.productoId] = COLORES_DONA[i % COLORES_DONA.length];
+    });
+
+    // Productos más vendidos: histórico global, no se ve afectado por el selector de período.
+    const tablaProductos = document.getElementById('tabla-productos');
+    tablaProductos.innerHTML = data.productosMasVendidos.length
+      ? data.productosMasVendidos
+          .map(
+            (pr) =>
+              `<tr><td>${pr.nombre}</td><td>${pr.cantidad}</td><td>${pr.cantidadConAdicional}</td><td>$${fmt(pr.total)}</td><td>$${fmt(pr.totalAdicionales)}</td></tr>`
+          )
+          .join('')
+      : '<tr><td colspan="5" class="vacio">Sin productos vendidos todavía.</td></tr>';
+
+    dibujarGraficoProductos(data.productosMasVendidos);
+  }
+
+  protegerPagina('manager').then(() => {
+    establecerValoresPorDefecto();
+    mostrarSelector('dia');
+    cargar();
+    consultaPuntual();
+    setInterval(() => {
+      cargar();
+      consultaPuntual();
+    }, 15000);
+  });
+</script>
+</body>
+</html>

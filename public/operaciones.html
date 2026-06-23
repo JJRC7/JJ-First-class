@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Operaciones - JJ First Class</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .lista-accesos { display: flex; flex-direction: column; gap: 14px; }
+  .acceso {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--tarjeta);
+    border: 1px solid var(--tarjeta-borde);
+    border-radius: 14px;
+    padding: 20px;
+    text-decoration: none;
+    color: var(--texto);
+  }
+  .acceso:hover { border-color: var(--dorado); }
+  .acceso .icono { font-size: 2rem; }
+  .acceso strong { display: block; font-size: 1.1rem; color: var(--dorado); }
+  .acceso span { font-size: 0.85rem; color: var(--texto-dim); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div><h1>Operaciones</h1><div class="subtitulo">Accesos del personal</div></div>
+</header>
+
+<main>
+  <div class="lista-accesos">
+    <a class="acceso" href="cocina.html">
+      <div class="icono">🍳</div>
+      <div>
+        <strong>Cocina</strong>
+        <span>Pedidos por preparar</span>
+      </div>
+    </a>
+    <a class="acceso" href="despacho.html">
+      <div class="icono">📦</div>
+      <div>
+        <strong>Despacho</strong>
+        <span>Pedidos listos en cocina, por empacar y confirmar pago</span>
+      </div>
+    </a>
+    <a class="acceso" href="domiciliario.html">
+      <div class="icono">🛵</div>
+      <div>
+        <strong>Domiciliario</strong>
+        <span>Pedidos por entregar y rutas</span>
+      </div>
+    </a>
+  </div>
+</main>
+</body>
+</html>

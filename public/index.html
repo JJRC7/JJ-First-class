@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JJ First Class - Pedir</title>
+<link rel="icon" href="assets/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <img class="logo" src="assets/logo.png" alt="JJ First Class">
+  <div>
+    <h1 id="nombre-negocio">JJ First Class</h1>
+    <div class="subtitulo" id="direccion-negocio"></div>
+  </div>
+</header>
+
+<div class="hero-restaurante">
+  <img src="assets/galeria-3.png" alt="JJ First Class">
+  <div class="hero-overlay">
+    <h2>Hamburguesas premium, hechas para disfrutar</h2>
+    <a href="#menu" class="principal hero-cta">Ver el menú</a>
+  </div>
+</div>
+
+<main>
+  <div id="vista-pedido">
+    <section class="tarjeta" id="menu">
+      <h2>Nuestros combos</h2>
+      <div class="menu-grid" id="lista-productos"></div>
+      <div class="subtitulo" style="margin-top:10px;text-align:right">Total: $<span id="subtotal-estimado">0</span></div>
+    </section>
+
+    <div class="banner-social">
+      <img src="assets/galeria-1.png" alt="">
+      <div class="banner-social-texto">Hecha para compartir 🍔</div>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Tus datos</h2>
+      <label for="nombre">Nombre</label>
+      <input id="nombre" type="text" placeholder="Tu nombre">
+
+      <label for="telefono">Teléfono</label>
+      <input id="telefono" type="tel" placeholder="3001234567">
+
+      <label for="direccion">Dirección de entrega</label>
+      <textarea id="direccion" rows="2" placeholder="Barrio, calle, número, referencia"></textarea>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Forma de pago</h2>
+      <label><input type="radio" name="pago" value="efectivo" checked style="width:auto;display:inline"> Efectivo</label>
+      <label><input type="radio" name="pago" value="transferencia" style="width:auto;display:inline"> Transferencia</label>
+
+      <div id="bloque-efectivo">
+        <label for="monto-pagado">¿Con cuánto vas a pagar?</label>
+        <input id="monto-pagado" type="number" min="0" step="1000" placeholder="Ej: 50000">
+        <div class="subtitulo" id="vuelto-estimado" style="margin-top:6px"></div>
+      </div>
+
+      <button class="principal" id="btn-confirmar" style="margin-top:16px">Confirmar pedido</button>
+      <div class="error" id="error-form"></div>
+    </div>
+  </div>
+
+  <div id="vista-confirmacion" class="tarjeta confirmacion" style="display:none">
+    <h2>¡Pedido recibido!</h2>
+    <div>Pedido #<span id="conf-numero"></span></div>
+    <div class="total">$<span id="conf-total"></span></div>
+    <div id="conf-vuelto" class="subtitulo"></div>
+
+    <div class="tracker" id="tracker">
+      <div class="paso" data-estado="nuevo"><div class="punto"></div><span>En cocina</span></div>
+      <div class="paso" data-estado="cocina_lista"><div class="punto"></div><span>En despacho</span></div>
+      <div class="paso" data-estado="despachado"><div class="punto"></div><span>En camino</span></div>
+      <div class="paso" data-estado="entregado"><div class="punto"></div><span>Entregado</span></div>
+    </div>
+    <div class="subtitulo" id="tracker-mensaje" style="margin:10px 0 16px"></div>
+
+    <p>Para avisar de inmediato al negocio, envía tu pedido por WhatsApp:</p>
+    <button class="principal whatsapp" id="btn-whatsapp">Pedir por WhatsApp</button>
+    <br>
+    <button class="secundario" id="btn-nuevo-pedido" style="margin-top:14px">Hacer otro pedido</button>
+  </div>
+</main>
+
+<script>
+  let productos = [];
+  let extraCarnePrecio = 0;
+  const cantidades = {};
+  const extras = {}; // { [productoId]: { extraCarne, sinLechuga, sinSalsa, notas } }
+
+  async function cargarConfig() {
+    const r = await fetch('/api/config');
+    const data = await r.json();
+    document.getElementById('nombre-negocio').textContent = data.negocio.nombre;
+    document.getElementById('direccion-negocio').textContent = data.negocio.direccion;
+    productos = data.productos;
+    extraCarnePrecio = data.extras.extraCarne.precio;
+    productos.forEach((p) => {
+      cantidades[p.id] = 0;
+      extras[p.id] = { extraCarne: false, sinLechuga: false, sinSalsa: false, notas: '' };
+    });
+    renderProductos();
+  }
+
+  function renderProductos() {
+    const cont = document.getElementById('lista-productos');
+    cont.innerHTML = productos
+      .map((p) => {
+        const cant = cantidades[p.id];
+        const ex = extras[p.id];
+        const modificadores =
+          cant > 0
+            ? `
+          <div class="extras">
+            <label><input type="checkbox" style="width:auto;display:inline" ${ex.extraCarne ? 'checked' : ''} onchange="cambiarExtra('${p.id}','extraCarne',this.checked)"> Extra carne (+$${extraCarnePrecio.toLocaleString('es-CO')})</label>
+            <label><input type="checkbox" style="width:auto;display:inline" ${ex.sinLechuga ? 'checked' : ''} onchange="cambiarExtra('${p.id}','sinLechuga',this.checked)"> Sin lechuga</label>
+            <label><input type="checkbox" style="width:auto;display:inline" ${ex.sinSalsa ? 'checked' : ''} onchange="cambiarExtra('${p.id}','sinSalsa',this.checked)"> Sin salsa</label>
+            <input type="text" placeholder="Otra observación (opcional)" value="${ex.notas}" oninput="cambiarNotas('${p.id}', this.value)">
+          </div>`
+            : '';
+
+        return `
+      <div class="producto-card">
+        <img class="producto-foto-grande" src="${p.imagen}" alt="${p.nombre}">
+        <div class="producto-card-body">
+          <strong>${p.nombre}</strong>
+          <div class="descripcion">${p.descripcion}</div>
+          <div class="precio">$${p.precio.toLocaleString('es-CO')}</div>
+          <div class="cantidad-control">
+            <button onclick="cambiarCantidad('${p.id}', -1)">-</button>
+            <span id="cant-${p.id}">${cant}</span>
+            <button onclick="cambiarCantidad('${p.id}', 1)">+</button>
+          </div>
+          ${modificadores}
+        </div>
+      </div>`;
+      })
+      .join('');
+
+    actualizarSubtotal();
+  }
+
+  function cambiarCantidad(id, delta) {
+    cantidades[id] = Math.max(0, cantidades[id] + delta);
+    renderProductos();
+  }
+
+  function cambiarExtra(id, campo, valor) {
+    extras[id][campo] = valor;
+    actualizarSubtotal();
+  }
+
+  function cambiarNotas(id, valor) {
+    extras[id].notas = valor;
+  }
+
+  function calcularSubtotal() {
+    return productos.reduce((acc, p) => {
+      const cant = cantidades[p.id];
+      if (cant <= 0) return acc;
+      const extra = extras[p.id].extraCarne ? extraCarnePrecio * cant : 0;
+      return acc + p.precio * cant + extra;
+    }, 0);
+  }
+
+  function actualizarSubtotal() {
+    const subtotal = calcularSubtotal();
+    document.getElementById('subtotal-estimado').textContent = subtotal.toLocaleString('es-CO');
+    actualizarVuelto(subtotal);
+  }
+
+  function actualizarVuelto(total) {
+    const montoInput = document.getElementById('monto-pagado');
+    const montoPagado = Number(montoInput.value);
+    const el = document.getElementById('vuelto-estimado');
+    if (!montoInput.value || !Number.isFinite(montoPagado)) {
+      el.textContent = '';
+      return;
+    }
+    const vuelto = montoPagado - total;
+    el.textContent =
+      vuelto >= 0
+        ? `Tu vuelto será: $${vuelto.toLocaleString('es-CO')}`
+        : `Falta $${Math.abs(vuelto).toLocaleString('es-CO')} para cubrir el total.`;
+  }
+
+  function actualizarBloquePago() {
+    const esEfectivo = document.querySelector('input[name="pago"]:checked').value === 'efectivo';
+    document.getElementById('bloque-efectivo').style.display = esEfectivo ? 'block' : 'none';
+  }
+
+  document.querySelectorAll('input[name="pago"]').forEach((r) => r.addEventListener('change', actualizarBloquePago));
+  document.getElementById('monto-pagado').addEventListener('input', () => actualizarVuelto(calcularSubtotal()));
+
+  document.getElementById('btn-confirmar').addEventListener('click', async () => {
+    const nombre = document.getElementById('nombre').value.trim();
+    const telefono = document.getElementById('telefono').value.trim();
+    const direccion = document.getElementById('direccion').value.trim();
+    const metodoPago = document.querySelector('input[name="pago"]:checked').value;
+    const montoPagado = document.getElementById('monto-pagado').value;
+    const errorEl = document.getElementById('error-form');
+    errorEl.textContent = '';
+
+    const items = productos
+      .filter((p) => cantidades[p.id] > 0)
+      .map((p) => ({ productoId: p.id, cantidad: cantidades[p.id], ...extras[p.id] }));
+
+    if (!nombre || !telefono || !direccion) {
+      errorEl.textContent = 'Completa nombre, teléfono y dirección.';
+      return;
+    }
+    if (items.length === 0) {
+      errorEl.textContent = 'Elige al menos un combo.';
+      return;
+    }
+    if (metodoPago === 'efectivo' && (!montoPagado || Number(montoPagado) <= 0)) {
+      errorEl.textContent = 'Indica con cuánto vas a pagar en efectivo.';
+      return;
+    }
+
+    const btn = document.getElementById('btn-confirmar');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    try {
+      const r = await fetch('/api/pedidos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, telefono, direccion, items, metodoPago, montoPagado })
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'No se pudo crear el pedido.');
+
+      document.getElementById('conf-numero').textContent = data.pedidoId;
+      document.getElementById('conf-total').textContent = data.total.toLocaleString('es-CO');
+      document.getElementById('conf-vuelto').textContent =
+        data.vuelto != null ? `Tu vuelto: $${data.vuelto.toLocaleString('es-CO')}` : 'Pago por transferencia';
+      document.getElementById('btn-whatsapp').onclick = () => window.open(data.enlaceWhatsapp, '_blank');
+
+      document.getElementById('vista-pedido').style.display = 'none';
+      document.getElementById('vista-confirmacion').style.display = 'block';
+      iniciarSeguimiento(data.pedidoId);
+    } catch (e) {
+      errorEl.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Confirmar pedido';
+    }
+  });
+
+  const ESTADOS_ORDEN = ['nuevo', 'cocina_lista', 'despachado', 'entregado'];
+  const MENSAJES_ESTADO = {
+    nuevo: 'Tu pedido está en cocina 👨‍🍳',
+    cocina_lista: 'Tu pedido está en despacho 📦',
+    despachado: 'Tu pedido va en camino 🛵',
+    entregado: '¡Pedido entregado! Buen provecho 🎉'
+  };
+  let intervaloSeguimiento = null;
+
+  function actualizarTracker(estado) {
+    const indiceActual = ESTADOS_ORDEN.indexOf(estado);
+    document.querySelectorAll('#tracker .paso').forEach((paso) => {
+      const indice = ESTADOS_ORDEN.indexOf(paso.dataset.estado);
+      paso.classList.toggle('completado', indice < indiceActual);
+      paso.classList.toggle('activo', indice === indiceActual);
+    });
+    document.getElementById('tracker-mensaje').textContent = MENSAJES_ESTADO[estado] || '';
+  }
+
+  function iniciarSeguimiento(pedidoId) {
+    if (intervaloSeguimiento) clearInterval(intervaloSeguimiento);
+    actualizarTracker('nuevo');
+
+    const consultar = async () => {
+      try {
+        const r = await fetch(`/api/pedidos/${pedidoId}/estado`);
+        if (!r.ok) return;
+        const data = await r.json();
+        actualizarTracker(data.estado);
+        if (data.estado === 'entregado') clearInterval(intervaloSeguimiento);
+      } catch (e) {
+        /* sin conexión momentánea, se reintenta en el próximo ciclo */
+      }
+    };
+
+    consultar();
+    intervaloSeguimiento = setInterval(consultar, 5000);
+  }
+
+  document.getElementById('btn-nuevo-pedido').addEventListener('click', () => {
+    if (intervaloSeguimiento) clearInterval(intervaloSeguimiento);
+    document.getElementById('nombre').value = '';
+    document.getElementById('telefono').value = '';
+    document.getElementById('direccion').value = '';
+    document.getElementById('monto-pagado').value = '';
+    document.querySelector('input[name="pago"][value="efectivo"]').checked = true;
+    actualizarBloquePago();
+    productos.forEach((p) => {
+      cantidades[p.id] = 0;
+      extras[p.id] = { extraCarne: false, sinLechuga: false, sinSalsa: false, notas: '' };
+    });
+    renderProductos();
+    document.getElementById('vista-confirmacion').style.display = 'none';
+    document.getElementById('vista-pedido').style.display = 'block';
+  });
+
+  cargarConfig();
+</script>
+</body>
+</html>
