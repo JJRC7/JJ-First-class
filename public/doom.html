@@ -101,7 +101,7 @@ const SFX = {
   click()    { sTone(0.05, 900, 700, 0.15); },
   pickup()   { sTone(0.07, 620, 620, 0.18); sTone(0.1, 940, 940, 0.18, 'square', 0.07); },
   weapon()   { sTone(0.1, 300, 300, 0.2); sTone(0.1, 450, 450, 0.2, 'square', 0.1); sTone(0.18, 600, 600, 0.2, 'square', 0.2); },
-  door()     { sNoise(0.9, 400, 0.4, 'lowpass', 80); sTone(0.8, 70, 40, 0.25, 'sawtooth'); },
+  door()     { sNoise(0.3, 500, 0.4, 'lowpass', 90); sTone(0.25, 80, 45, 0.25, 'sawtooth'); },
   hurt()     { sTone(0.25, 240, 90, 0.35, 'sawtooth'); },
   die()      { sTone(1.2, 320, 40, 0.45, 'sawtooth'); },
   mdie(v)    { sTone(0.6, 260, 45, 0.35 * v, 'sawtooth'); sNoise(0.4, 900, 0.3 * v, 'lowpass', 100); },
@@ -700,7 +700,7 @@ function solidCell(cx, cy) {
   if (cx < 0 || cy < 0 || cx >= MW || cy >= MH) return true;
   const c = grid[cy * MW + cx];
   if (!c) return false;
-  if (isDoor(c)) return doorOpen[cy * MW + cx] < 0.9;
+  if (isDoor(c)) return doorOpen[cy * MW + cx] < 0.6;
   return true;
 }
 function blockedAt(x, y, r) {
@@ -998,7 +998,7 @@ function update(dt) {
   }
   // puertas
   for (let k = doorMoving.length - 1; k >= 0; k--) {
-    const i = doorMoving[k]; doorOpen[i] = Math.min(1, doorOpen[i] + dt * 1.6);
+    const i = doorMoving[k]; doorOpen[i] = Math.min(1, doorOpen[i] + dt * 6);
     if (doorOpen[i] >= 1) { doorMoving.splice(k, 1); computeFlow(); }
   }
   G.flowT -= dt; if (G.flowT <= 0) { G.flowT = 0.4; computeFlow(); }
