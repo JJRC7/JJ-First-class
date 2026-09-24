@@ -2,11 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Infierno JJ</title>
 <style>
+  :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
-  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #wrap { position: fixed; inset: 0; box-sizing: border-box; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); display: flex; align-items: center; justify-content: center; }
   canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; cursor: crosshair; }
   #touch { position: fixed; inset: 0; display: none; pointer-events: none; }
   .tbtn { position: absolute; pointer-events: auto; border: 2px solid rgba(255,255,255,.35); background: rgba(140,0,0,.35);
@@ -37,7 +38,10 @@ const H = 240, HUD = 40, VH = H - HUD, HOR = VH / 2;
 let W = 320, img, buf32, zbuf, planeLen = 0.66;
 
 function resize() {
-  const aspect = innerWidth / innerHeight;
+  const wrap = document.getElementById('wrap'), cs = getComputedStyle(wrap);
+  const aw = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const ah = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const aspect = aw / ah;
   W = Math.max(320, Math.min(560, Math.round(H * aspect / 2) * 2));
   cv.width = W; cv.height = H;
   img = ctx.createImageData(W, VH);
@@ -45,7 +49,7 @@ function resize() {
   zbuf = new Float32Array(W);
   fire = new Uint8Array(W * VH);
   planeLen = 0.66 * (W / VH) / 1.6;
-  const s = Math.min(innerWidth / W, innerHeight / H);
+  const s = Math.min(aw / W, ah / H);
   cv.style.width = Math.floor(W * s) + 'px';
   cv.style.height = Math.floor(H * s) + 'px';
   ctx.imageSmoothingEnabled = false;
@@ -975,7 +979,7 @@ function textC(t, y, font, col, shadow) {
   ctx.fillStyle = shadow || '#000'; ctx.fillText(t, W / 2 + 1, y + 1); ctx.fillText(t, W / 2 + 2, y + 2);
   ctx.fillStyle = col; ctx.fillText(t, W / 2, y);
 }
-const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const isTouch = matchMedia('(pointer: coarse)').matches;
 const blink = () => ((G.titleT * 2) | 0) % 2 === 0;
 function drawTitle() {
   drawFire();
@@ -1040,7 +1044,13 @@ function setState(s) {
   touchUI.style.display = isTouch && s === 'play' ? 'block' : 'none';
   if (s !== 'play' && document.pointerLockElement) document.exitPointerLock();
 }
-function lockPointer() { if (!isTouch && cv.requestPointerLock && document.pointerLockElement !== cv) { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} } }
+// Si el navegador no permite capturar el ratón, se juega apuntando con clic y arrastre.
+let lockFailed = !cv.requestPointerLock;
+document.addEventListener('pointerlockerror', () => { lockFailed = true; });
+function lockPointer() {
+  if (isTouch || lockFailed || document.pointerLockElement === cv) return;
+  try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => { lockFailed = true; }); } catch (e) { lockFailed = true; }
+}
 function advance() {
   audioInit();
   if (G.state === 'title') { newGameInventory(); loadLevel(0); setState('play'); lockPointer(); }
@@ -1078,11 +1088,14 @@ cv.addEventListener('mousedown', e => {
   if (Date.now() - lastTouch < 800) return;
   audioInit();
   if (G.state !== 'play' || G.paused || P.dead) { advance(); return; }
-  if (document.pointerLockElement !== cv) { lockPointer(); return; }
+  if (document.pointerLockElement !== cv && !lockFailed && !isTouch) { lockPointer(); return; }
   if (e.button === 0) mouseFire = true;
 });
 addEventListener('mouseup', () => { mouseFire = false; });
-addEventListener('mousemove', e => { if (document.pointerLockElement === cv && G.state === 'play' && !G.paused && !P.dead) P.a += e.movementX * 0.0025; });
+addEventListener('mousemove', e => {
+  if (G.state !== 'play' || G.paused || P.dead) return;
+  if (document.pointerLockElement === cv || ((lockFailed || isTouch) && e.buttons & 1)) P.a += e.movementX * 0.0025;
+});
 addEventListener('wheel', e => {
   if (G.state !== 'play') return;
   const owned = WORDER.filter(w => P.weapons[w]); const i = owned.indexOf(P.cur);
