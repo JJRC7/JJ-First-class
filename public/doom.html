@@ -28,7 +28,14 @@
   <div class="tbtn" id="bMap"  style="right:104px;bottom:118px;width:48px;height:48px">MAPA</div>
 </div>
 <script>
+(() => {
 'use strict';
+// Si la página vuelve a ejecutar el script (p. ej. al actualizarse abierta), se detiene la copia anterior.
+if (window.__infiernoStop) window.__infiernoStop();
+const cleanups = [];
+let stopped = false;
+function on(t, ev, fn, opt) { t.addEventListener(ev, fn, opt); cleanups.push(() => t.removeEventListener(ev, fn, opt)); }
+window.__infiernoStop = () => { stopped = true; cleanups.forEach(f => f()); };
 // ================================================================
 //  INFIERNO JJ — shooter 3D por raycasting al estilo clásico
 // ================================================================
@@ -39,8 +46,11 @@ let W = 320, img, buf32, zbuf, planeLen = 0.66;
 
 function resize() {
   const wrap = document.getElementById('wrap'), cs = getComputedStyle(wrap);
-  const aw = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-  const ah = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  let aw = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  let ah = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  // El visor puede cargar la página con tamaño cero; se usa un tamaño provisional hasta que cambie.
+  if (!(aw > 0 && ah > 0)) { aw = innerWidth || 640; ah = innerHeight || 480; }
+  if (!(aw > 0 && ah > 0)) { aw = 640; ah = 480; }
   const aspect = aw / ah;
   W = Math.max(320, Math.min(560, Math.round(H * aspect / 2) * 2));
   cv.width = W; cv.height = H;
@@ -1380,7 +1390,7 @@ function setState(s) {
 }
 // Si el navegador no permite capturar el ratón, se juega apuntando con clic y arrastre.
 let lockFailed = !cv.requestPointerLock;
-document.addEventListener('pointerlockerror', () => { lockFailed = true; });
+on(document, 'pointerlockerror', () => { lockFailed = true; });
 function lockPointer() {
   if (isTouch || lockFailed || document.pointerLockElement === cv) return;
   try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => { lockFailed = true; }); } catch (e) { lockFailed = true; }
@@ -1410,7 +1420,7 @@ function titleZone(clientX) {
 }
 
 // ---------------- entrada ----------------
-addEventListener('keydown', e => {
+on(window, 'keydown', e => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys[e.code] = true; audioInit();
@@ -1428,10 +1438,10 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit3') selectWeapon('chaingun');
   if (e.code === 'Digit4') selectWeapon('rocketl');
 });
-addEventListener('keyup', e => { keys[e.code] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseFire = false; });
+on(window, 'keyup', e => { keys[e.code] = false; });
+on(window, 'blur', () => { for (const k in keys) keys[k] = false; mouseFire = false; });
 let lastTouch = 0;
-cv.addEventListener('mousedown', e => {
+on(cv, 'mousedown', e => {
   if (Date.now() - lastTouch < 800) return;
   audioInit();
   if (titleZone(e.clientX)) return;
@@ -1439,38 +1449,38 @@ cv.addEventListener('mousedown', e => {
   if (document.pointerLockElement !== cv && !lockFailed && !isTouch) { lockPointer(); return; }
   if (e.button === 0) mouseFire = true;
 });
-addEventListener('mouseup', () => { mouseFire = false; });
-addEventListener('mousemove', e => {
+on(window, 'mouseup', () => { mouseFire = false; });
+on(window, 'mousemove', e => {
   if (G.state !== 'play' || G.paused || P.dead) return;
   if (document.pointerLockElement === cv || ((lockFailed || isTouch) && e.buttons & 1)) P.a += e.movementX * 0.0025;
 });
-addEventListener('wheel', e => {
+on(window, 'wheel', e => {
   if (G.state !== 'play') return;
   const owned = WORDER.filter(w => P.weapons[w]); const i = owned.indexOf(P.cur);
   selectWeapon(owned[(i + (e.deltaY > 0 ? 1 : owned.length - 1)) % owned.length]);
 }, { passive: true });
 let wasLocked = false;
-document.addEventListener('pointerlockchange', () => {
+on(document, 'pointerlockchange', () => {
   const locked = document.pointerLockElement === cv;
   if (wasLocked && !locked && G.state === 'play' && !P.dead) G.paused = true;
   wasLocked = locked;
 });
-cv.addEventListener('contextmenu', e => e.preventDefault());
+on(cv, 'contextmenu', e => e.preventDefault());
 
 // táctil
 const stickBase = document.getElementById('stickBase'), stickKnob = document.getElementById('stickKnob');
 let stickId = null, stickX = 0, stickY = 0, lookId = null, lookX = 0;
 function btn(id, down, up) {
   const el = document.getElementById(id);
-  el.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); lastTouch = Date.now(); audioInit(); el.classList.add('on'); down(); }, { passive: false });
+  on(el, 'touchstart', e => { e.preventDefault(); e.stopPropagation(); lastTouch = Date.now(); audioInit(); el.classList.add('on'); down(); }, { passive: false });
   const end = e => { e.preventDefault(); e.stopPropagation(); el.classList.remove('on'); if (up) up(); };
-  el.addEventListener('touchend', end, { passive: false }); el.addEventListener('touchcancel', end, { passive: false });
+  on(el, 'touchend', end, { passive: false }); on(el, 'touchcancel', end, { passive: false });
 }
 btn('bFire', () => { touchFire = true; }, () => { touchFire = false; });
 btn('bUse', () => { if (G.state === 'play' && !P.dead) useAction(); });
 btn('bMap', () => { G.map = !G.map; });
 btn('bWeap', () => { const owned = WORDER.filter(w => P.weapons[w]); selectWeapon(owned[(owned.indexOf(P.cur) + 1) % owned.length]); });
-addEventListener('touchstart', e => {
+on(window, 'touchstart', e => {
   e.preventDefault(); lastTouch = Date.now(); audioInit();
   if (titleZone(e.changedTouches[0].clientX)) return;
   if (G.state !== 'play' || G.paused || P.dead) { advance(); return; }
@@ -1482,7 +1492,7 @@ addEventListener('touchstart', e => {
     } else if (lookId === null) { lookId = t.identifier; lookX = t.clientX; }
   }
 }, { passive: false });
-addEventListener('touchmove', e => {
+on(window, 'touchmove', e => {
   e.preventDefault();
   for (const t of e.changedTouches) {
     if (t.identifier === stickId) {
@@ -1499,21 +1509,24 @@ function touchEnd(e) {
     if (t.identifier === lookId) lookId = null;
   }
 }
-addEventListener('touchend', touchEnd); addEventListener('touchcancel', touchEnd);
+on(window, 'touchend', touchEnd); on(window, 'touchcancel', touchEnd);
 
 // ---------------- bucle principal ----------------
-addEventListener('resize', resize);
+on(window, 'resize', resize);
+if (window.ResizeObserver) { const ro = new ResizeObserver(() => resize()); ro.observe(document.getElementById('wrap')); cleanups.push(() => ro.disconnect()); }
 resize();
 buildTextures();
 buildSprites();
 let lastT = performance.now();
 function frame(now) {
+  if (stopped) return;
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   update(dt);
   render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+})();
 </script>
 </body>
 </html>
