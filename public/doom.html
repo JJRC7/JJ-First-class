@@ -41,8 +41,17 @@ window.__infiernoStop = () => { stopped = true; cleanups.forEach(f => f()); };
 // ================================================================
 const cv = document.getElementById('c');
 const ctx = cv.getContext('2d');
-const H = 240, HUD = 40, VH = H - HUD, HOR = VH / 2;
-let W = 320, img, buf32, zbuf, planeLen = 0.66;
+// El mundo 3D se dibuja a RS veces la resolución clásica (240 líneas); HUD y textos usan coordenadas de 240.
+const RS = matchMedia('(pointer: coarse)').matches ? 1.25 : 1.5;
+let H = Math.round(240 * RS), HUD = 40 * RS, VH = H - HUD, HOR = VH / 2;
+let W = 320, LW = 320, img, buf32, zbuf, planeLen = 0.66;
+// Ejecuta fn con coordenadas lógicas de 240 líneas (para HUD, arma, menús y textos).
+function logical(fn) {
+  const s = [W, H, HUD, VH, HOR];
+  W = LW; H = 240; HUD = 40; VH = 200; HOR = 100;
+  ctx.setTransform(RS, 0, 0, RS, 0, 0);
+  try { fn(); } finally { [W, H, HUD, VH, HOR] = s; ctx.setTransform(1, 0, 0, 1, 0, 0); }
+}
 
 function resize() {
   const wrap = document.getElementById('wrap'), cs = getComputedStyle(wrap);
@@ -52,7 +61,8 @@ function resize() {
   if (!(aw > 0 && ah > 0)) { aw = innerWidth || 640; ah = innerHeight || 480; }
   if (!(aw > 0 && ah > 0)) { aw = 640; ah = 480; }
   const aspect = aw / ah;
-  W = Math.max(320, Math.min(560, Math.round(H * aspect / 2) * 2));
+  LW = Math.max(320, Math.min(560, Math.round(240 * aspect / 2) * 2));
+  W = Math.round(LW * RS / 2) * 2; LW = W / RS;
   cv.width = W; cv.height = H;
   img = ctx.createImageData(W, VH);
   buf32 = new Uint32Array(img.data.buffer);
@@ -126,22 +136,86 @@ const SFX = {
 };
 
 // ---------------- texturas procedurales ----------------
+// Las texturas y sprites se dibujan en coordenadas de 64 y se generan a 128x128 (TS) para tener más detalle.
+const TS = 128, TM = TS - 1, TSH = 7;
 function canvasTex(size, fn, seed) {
-  const c = document.createElement('canvas'); c.width = c.height = size;
-  const g = c.getContext('2d'); fn(g, size, mulberry(seed || 7));
+  const c = document.createElement('canvas'); c.width = c.height = TS;
+  const g = c.getContext('2d'); g.scale(TS / size, TS / size); fn(g, size, mulberry(seed || 7));
+  g.setTransform(1, 0, 0, 1, 0, 0);
   return g;
 }
+// Ruido de valor suave y repetible (sin costuras) para manchas y variación del material.
+function valueNoise(r, cells) {
+  const v = []; for (let i = 0; i < cells * cells; i++) v.push(r());
+  const sm = t => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const fx = x / TS * cells, fy = y / TS * cells, x0 = Math.floor(fx), y0 = Math.floor(fy), tx = sm(fx - x0), ty = sm(fy - y0);
+    const at = (i, j) => v[((j % cells + cells) % cells) * cells + ((i % cells + cells) % cells)];
+    const a = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * tx, b = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * tx;
+    return a + (b - a) * ty;
+  };
+}
 function addNoise(g, s, amt, r) {
-  const d = g.getImageData(0, 0, s, s), a = d.data;
-  for (let i = 0; i < a.length; i += 4) { if (!a[i + 3]) continue; const n = (r() - 0.5) * amt; a[i] += n; a[i + 1] += n; a[i + 2] += n; }
+  const n = g.canvas.width, d = g.getImageData(0, 0, n, n), a = d.data;
+  const blot = valueNoise(r, 6), fine = valueNoise(r, 24);
+  for (let i = 0, p = 0; i < a.length; i += 4, p++) {
+    if (!a[i + 3]) continue;
+    const x = p % n, y = (p / n) | 0;
+    const m = 0.86 + blot(x, y) * 0.26 + (fine(x, y) - 0.5) * 0.12;
+    const k = (r() - 0.5) * amt * 0.7;
+    a[i] = a[i] * m + k; a[i + 1] = a[i + 1] * m + k; a[i + 2] = a[i + 2] * m + k;
+  }
   g.putImageData(d, 0, 0);
 }
-function toU32(g, s, sprite) {
-  const d = g.getImageData(0, 0, s, s), a = d.data;
-  if (sprite) for (let i = 3; i < a.length; i += 4) a[i] = a[i] < 110 ? 0 : 255;
+// Desgaste de paredes: suciedad en la base, sombra bajo el techo y chorreones.
+function weather(g, r, amt) {
+  const n = g.canvas.width, d = g.getImageData(0, 0, n, n), a = d.data;
+  const drips = []; for (let i = 0; i < 7; i++) drips.push([r() * n | 0, 1 + (r() * 2 | 0), n * (0.2 + r() * 0.5)]);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    let m = 1;
+    const fy = y / n;
+    if (fy > 0.72) m -= (fy - 0.72) / 0.28 * 0.35 * amt;
+    if (fy < 0.06) m -= (0.06 - fy) / 0.06 * 0.25 * amt;
+    for (const [dx, w, len] of drips) if (x >= dx && x < dx + w && y < len) m -= 0.18 * amt * (1 - y / len);
+    const i = (y * n + x) * 4; a[i] *= m; a[i + 1] *= m; a[i + 2] *= m;
+  }
+  g.putImageData(d, 0, 0);
+}
+function toU32(g, s, mode) {
+  const n = g.canvas.width, d = g.getImageData(0, 0, n, n), a = d.data;
+  if (mode) {
+    for (let i = 3; i < a.length; i += 4) a[i] = a[i] < 110 ? 0 : 255;
+    if (mode === 'body') shapeSprite(a, n);
+  }
   return new Uint32Array(a.buffer.slice(0));
 }
-const tex = (fn, seed) => toU32(canvasTex(64, fn, seed), 64, false);
+// Da volumen a los sprites (sombreado cilíndrico con luz desde arriba a la izquierda) y un contorno oscuro.
+function shapeSprite(a, n) {
+  const op = i => a[i * 4 + 3] > 0;
+  for (let y = 0; y < n; y++) {
+    let x = 0;
+    while (x < n) {
+      if (!op(y * n + x)) { x++; continue; }
+      let x1 = x; while (x1 < n && op(y * n + x1)) x1++;
+      const L = x1 - x;
+      for (let k = x; k < x1; k++) {
+        const t = (k - x + 0.5) / L;
+        let f = L < 4 ? 1 : 0.62 + 0.5 * Math.sin(Math.PI * Math.min(1, t * 1.15)) + 0.1 * (0.5 - t);
+        f *= 1.1 - 0.22 * (y / n);
+        const i = (y * n + k) * 4; a[i] *= f; a[i + 1] *= f; a[i + 2] *= f;
+      }
+      x = x1;
+    }
+  }
+  const edge = [];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const p = y * n + x; if (op(p)) continue;
+    if ((x > 0 && op(p - 1)) || (x < n - 1 && op(p + 1)) || (y > 0 && op(p - n)) || (y < n - 1 && op(p + n))) edge.push(p);
+  }
+  for (const p of edge) { const i = p * 4; a[i] = 14; a[i + 1] = 6; a[i + 2] = 6; a[i + 3] = 255; }
+}
+const tex = (fn, seed, wear = 1) => { const g = canvasTex(64, fn, seed); if (wear) weather(g, mulberry(seed + 50), wear); return toU32(g, 64, false); };
+const flat = (fn, seed) => tex(fn, seed, 0);
 
 function panel(g, px, py, w, h, base, hi, lo) {
   g.fillStyle = base; g.fillRect(px + 1, py + 1, w - 2, h - 2);
@@ -217,26 +291,26 @@ function buildTextures() {
     g.beginPath(); g.arc(26, 32, 4, 0, 7); g.fill(); g.fillRect(29, 31, 11, 3); g.fillRect(36, 34, 2, 3); g.fillRect(39, 34, 2, 2);
     addNoise(g, s, 10, r);
   }, 17);
-  TEX.floor1 = tex((g, s, r) => {
+  TEX.floor1 = flat((g, s, r) => {
     g.fillStyle = '#262626'; g.fillRect(0, 0, s, s);
     for (const [px, py] of [[0, 0], [32, 0], [0, 32], [32, 32]]) { const v = r() * 16 | 0; panel(g, px, py, 32, 32, `rgb(${60 + v},${58 + v},${54 + v})`, '#6a6a66', '#2a2a2a'); }
     for (let i = 0; i < 10; i++) { g.fillStyle = 'rgba(20,15,10,.35)'; g.beginPath(); g.arc(r() * 64, r() * 64, 1 + r() * 4, 0, 7); g.fill(); }
     addNoise(g, s, 20, r);
   }, 21);
-  TEX.ceil1 = tex((g, s, r) => {
+  TEX.ceil1 = flat((g, s, r) => {
     g.fillStyle = '#1e1e22'; g.fillRect(0, 0, s, s);
     for (const [px, py] of [[0, 0], [32, 0], [0, 32], [32, 32]]) panel(g, px, py, 32, 32, '#38383f', '#48484f', '#202024');
     g.fillStyle = '#9a9a88'; g.fillRect(24, 24, 16, 16); g.fillStyle = '#f4f4dc'; g.fillRect(26, 26, 12, 12);
     addNoise(g, s, 12, r);
   }, 22);
-  TEX.floor2 = tex((g, s, r) => {
+  TEX.floor2 = flat((g, s, r) => {
     g.fillStyle = '#2a120c'; g.fillRect(0, 0, s, s);
     for (let i = 0; i < 22; i++) { const v = r(); g.fillStyle = `rgb(${70 + v * 40 | 0},${34 + v * 16 | 0},${24 + v * 10 | 0})`; g.beginPath(); g.ellipse(r() * 64, r() * 64, 5 + r() * 8, 4 + r() * 6, r() * 3, 0, 7); g.fill(); }
     g.strokeStyle = '#ff5a00'; g.lineWidth = 1;
     for (let i = 0; i < 5; i++) { g.beginPath(); let x = r() * 64, y = r() * 64; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += (r() - 0.5) * 20; y += (r() - 0.5) * 20; g.lineTo(x, y); } g.stroke(); }
     addNoise(g, s, 24, r);
   }, 23);
-  TEX.ceil2 = tex((g, s, r) => {
+  TEX.ceil2 = flat((g, s, r) => {
     g.fillStyle = '#1b1414'; g.fillRect(0, 0, s, s);
     for (let i = 0; i < 30; i++) { const v = r(); g.fillStyle = `rgb(${40 + v * 25 | 0},${28 + v * 15 | 0},${26 + v * 12 | 0})`; g.beginPath(); g.arc(r() * 64, r() * 64, 3 + r() * 7, 0, 7); g.fill(); }
     addNoise(g, s, 30, r);
@@ -277,7 +351,7 @@ function buildTextures() {
     g.fillStyle = '#1a3328'; g.fillRect(0, 4, 64, 1); g.fillRect(0, 59, 64, 1);
     addNoise(g, s, 14, r);
   }, 33);
-  TEX.floor3 = tex((g, s, r) => { // hormigón
+  TEX.floor3 = flat((g, s, r) => { // hormigón
     g.fillStyle = '#4e4b42'; g.fillRect(0, 0, s, s);
     for (const [px, py] of [[0, 0], [32, 0], [0, 32], [32, 32]]) { const v = r() * 14 | 0; panel(g, px, py, 32, 32, `rgb(${74 + v},${71 + v},${62 + v})`, '#86836f', '#35332c'); }
     g.strokeStyle = '#2a2822'; g.lineWidth = 1;
@@ -285,13 +359,13 @@ function buildTextures() {
     g.fillStyle = 'rgba(80,140,20,.45)'; g.beginPath(); g.ellipse(44, 18, 7, 4, 0.4, 0, 7); g.fill();
     addNoise(g, s, 22, r);
   }, 34);
-  TEX.floor4 = tex((g, s, r) => { // ajedrez de mármol
+  TEX.floor4 = flat((g, s, r) => { // ajedrez de mármol
     for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? '#1d3a2e' : '#7d8a7c'; g.fillRect(x * 16, y * 16, 16, 16); }
     g.strokeStyle = 'rgba(255,255,255,.18)'; g.lineWidth = 1;
     for (let i = 0; i < 5; i++) { g.beginPath(); g.moveTo(r() * 64, r() * 64); g.lineTo(r() * 64, r() * 64); g.stroke(); }
     addNoise(g, s, 14, r);
   }, 35);
-  TEX.ceil4 = tex((g, s, r) => { // vigas de madera
+  TEX.ceil4 = flat((g, s, r) => { // vigas de madera
     g.fillStyle = '#1c120a'; g.fillRect(0, 0, s, s);
     for (let y = 0; y < 64; y += 16) { g.fillStyle = '#4a2e1a'; g.fillRect(0, y + 2, 64, 8); g.fillStyle = '#5e3c22'; g.fillRect(0, y + 2, 64, 1); g.fillStyle = '#2a180c'; g.fillRect(0, y + 9, 64, 1); }
     addNoise(g, s, 16, r);
@@ -361,9 +435,14 @@ function sprSoul(g, fr) { // alma perdida: calavera en llamas
   if (fr === 'dead') return;
   if (fr === 'die1') { glow(g, 32, 32, 30, '#ffd040', 'rgba(255,60,0,0)'); g.fillStyle = '#e8dcc0'; for (const [x, y] of [[18, 20], [44, 24], [28, 44], [40, 42], [22, 34]]) circle(g, x, y, 4); return; }
   const k = fr === 'walk2' ? 3 : 0, atk = fr === 'attack';
-  g.fillStyle = '#ff7a10';
-  for (let i = 0; i < 7; i++) { const x = 12 + i * 7; tri(g, x - 5, 30, x + 5, 30, x + ((i + k) % 2 ? -3 : 3), 4 + ((i * 7 + k * 5) % 11)); }
-  glow(g, 32, 34, 26, atk ? '#ffe060' : '#ffb030', 'rgba(255,40,0,0)');
+  // lenguas de fuego curvas con degradado
+  const fg = g.createLinearGradient(0, 2, 0, 40); fg.addColorStop(0, '#ff3a00'); fg.addColorStop(0.5, '#ff9a10'); fg.addColorStop(1, '#ffe070');
+  g.fillStyle = fg;
+  for (let i = 0; i < 6; i++) {
+    const x = 14 + i * 7.2, h = 6 + ((i * 7 + k * 5) % 9), sw = ((i + k) % 2 ? -4 : 4);
+    g.beginPath(); g.moveTo(x - 6, 34); g.quadraticCurveTo(x - 5, 20, x + sw, h); g.quadraticCurveTo(x + 2, 22, x + 6, 34); g.fill();
+  }
+  glow(g, 32, 34, 22, atk ? '#ffe060' : '#ffb030', 'rgba(255,40,0,0)');
   g.fillStyle = '#e8dcc0'; ell(g, 32, 31, 13, 12); g.fillRect(25, 36, 14, 8);
   g.fillStyle = '#1a0800'; ell(g, 27, 31, 4, 4); ell(g, 37, 31, 4, 4); tri(g, 30, 39, 34, 39, 32, 35);
   if (atk || fr === 'pain') { g.fillStyle = '#ff2020'; circle(g, 27, 31, 1.5); circle(g, 37, 31, 1.5); }
@@ -445,7 +524,9 @@ function sprDemon(g, fr) {
   if (fr === 'pain' || fr === 'die1') blood(g, [[26, 38], [38, 42], [30, 20], [44, 34]]);
   g.restore();
 }
-const spr = fn => toU32(canvasTex(64, fn, 5), 64, true);
+// Los sprites sólidos llevan textura (piel, tela, metal) antes del sombreado.
+const spr = (fn, mode = 'body') => toU32(canvasTex(64, (g, s, r) => { fn(g, s, r); if (mode === 'body') addNoise(g, s, 16, r); }, 5), 64, mode);
+const sprGlow = fn => spr(fn, 'glow');
 const SPR = {};
 function buildSprites() {
   const kinds = [
@@ -459,15 +540,15 @@ function buildSprites() {
   SPR.spectre = SPR.demon;
   SPR.rocketl = spr(g => { g.fillStyle = '#4a5a3a'; g.fillRect(8, 54, 44, 8); g.fillStyle = '#65784f'; g.fillRect(8, 55, 44, 2); g.fillStyle = '#1a1a1a'; g.fillRect(6, 53, 4, 10); g.fillStyle = '#c9a100'; g.fillRect(30, 54, 3, 8); g.fillStyle = '#333'; g.fillRect(36, 61, 6, 3); });
   SPR.rockets = spr(g => { g.fillStyle = '#6a4a2a'; g.fillRect(20, 53, 24, 11); g.fillStyle = '#8a6a3a'; g.fillRect(20, 53, 24, 2); for (let x = 23; x < 42; x += 7) { g.fillStyle = '#888'; g.fillRect(x, 45, 4, 9); g.fillStyle = '#b22'; tri(g, x, 45, x + 4, 45, x + 2, 41); } });
-  SPR.soul = spr(g => { glow(g, 32, 42, 18, '#a0c0ff', 'rgba(0,40,255,0)'); g.fillStyle = 'rgba(10,20,90,.8)'; ell(g, 27, 40, 3, 4); ell(g, 37, 40, 3, 4); ell(g, 32, 49, 4, 2); });
+  SPR.soul = sprGlow(g => { glow(g, 32, 42, 18, '#a0c0ff', 'rgba(0,40,255,0)'); g.fillStyle = 'rgba(10,20,90,.8)'; ell(g, 27, 40, 3, 4); ell(g, 37, 40, 3, 4); ell(g, 32, 49, 4, 2); });
   SPR.bluekey = spr(g => { glow(g, 32, 55, 10, 'rgba(60,120,255,.6)', 'rgba(0,0,255,0)'); g.fillStyle = '#1848d8'; g.fillRect(28, 48, 9, 15); g.fillStyle = '#fff'; g.fillRect(28, 52, 9, 2); g.fillStyle = '#012'; g.fillRect(30, 57, 5, 4); });
   SPR.stim = spr(g => { g.fillStyle = '#ddd'; g.fillRect(26, 55, 12, 9); g.fillStyle = '#d00'; g.fillRect(31, 56, 2, 7); g.fillRect(28, 58, 8, 2); });
-  SPR.pb1 = spr(g => glow(g, 32, 32, 26, '#ff90ff', 'rgba(120,0,255,0.7)'));
-  SPR.pb2 = spr(g => glow(g, 32, 32, 22, '#ffc0ff', 'rgba(160,40,255,0.8)'));
-  SPR.gb1 = spr(g => glow(g, 32, 32, 26, '#b0ffb0', 'rgba(0,160,0,0.7)'));
-  SPR.gb2 = spr(g => glow(g, 32, 32, 22, '#e0ffe0', 'rgba(40,200,40,0.8)'));
-  SPR.rk1 = spr(g => { glow(g, 32, 32, 26, '#ffa040', 'rgba(255,60,0,0)'); g.fillStyle = '#777'; circle(g, 32, 32, 10); g.fillStyle = '#b22'; circle(g, 32, 32, 5); });
-  SPR.rk2 = spr(g => { glow(g, 32, 32, 20, '#ffd060', 'rgba(255,60,0,0)'); g.fillStyle = '#777'; circle(g, 32, 32, 10); g.fillStyle = '#b22'; circle(g, 32, 32, 5); });
+  SPR.pb1 = sprGlow(g => glow(g, 32, 32, 26, '#ff90ff', 'rgba(120,0,255,0.7)'));
+  SPR.pb2 = sprGlow(g => glow(g, 32, 32, 22, '#ffc0ff', 'rgba(160,40,255,0.8)'));
+  SPR.gb1 = sprGlow(g => glow(g, 32, 32, 26, '#b0ffb0', 'rgba(0,160,0,0.7)'));
+  SPR.gb2 = sprGlow(g => glow(g, 32, 32, 22, '#e0ffe0', 'rgba(40,200,40,0.8)'));
+  SPR.rk1 = sprGlow(g => { glow(g, 32, 32, 26, '#ffa040', 'rgba(255,60,0,0)'); g.fillStyle = '#777'; circle(g, 32, 32, 10); g.fillStyle = '#b22'; circle(g, 32, 32, 5); });
+  SPR.rk2 = sprGlow(g => { glow(g, 32, 32, 20, '#ffd060', 'rgba(255,60,0,0)'); g.fillStyle = '#777'; circle(g, 32, 32, 10); g.fillStyle = '#b22'; circle(g, 32, 32, 5); });
   SPR.medkit = spr(g => { g.fillStyle = '#ddd'; g.fillRect(21, 49, 22, 15); g.fillStyle = '#999'; g.fillRect(21, 61, 22, 3); g.fillStyle = '#d00'; g.fillRect(29, 51, 6, 10); g.fillRect(26, 54, 12, 4); });
   SPR.clip = spr(g => { g.fillStyle = '#5a4a20'; g.fillRect(27, 53, 10, 11); g.fillStyle = '#d4b050'; for (let x = 28; x < 37; x += 3) g.fillRect(x, 50, 2, 4); });
   SPR.shells = spr(g => { g.fillStyle = '#8a1a1a'; g.fillRect(22, 54, 20, 10); g.fillStyle = '#d4b050'; for (let x = 23; x < 42; x += 4) g.fillRect(x, 51, 3, 4); g.fillStyle = '#c33'; g.fillRect(22, 54, 20, 2); });
@@ -480,14 +561,14 @@ function buildSprites() {
     g.fillStyle = '#222'; g.fillRect(20, 38, 24, 2); g.fillRect(20, 54, 24, 2);
     g.fillStyle = '#6f0'; ell(g, 32, 31, 12, 3); g.fillStyle = '#bf4'; ell(g, 30, 31, 5, 1.5);
   });
-  SPR.fb1 = spr(g => glow(g, 32, 32, 26, '#ffc040', 'rgba(255,40,0,0.7)'));
-  SPR.fb2 = spr(g => glow(g, 32, 32, 22, '#ffe080', 'rgba(255,80,0,0.8)'));
-  SPR.puff = [18, 13, 8].map(r => spr(g => { g.fillStyle = '#bbb'; circle(g, 32, 32, r); g.fillStyle = '#eee'; circle(g, 29, 29, r / 2); }));
-  SPR.blood = [16, 12, 7].map(r => spr(g => { g.fillStyle = '#c00'; circle(g, 32, 32, r); circle(g, 20, 40, r / 2); g.fillStyle = '#700'; circle(g, 40, 38, r / 2); }));
+  SPR.fb1 = sprGlow(g => glow(g, 32, 32, 26, '#ffc040', 'rgba(255,40,0,0.7)'));
+  SPR.fb2 = sprGlow(g => glow(g, 32, 32, 22, '#ffe080', 'rgba(255,80,0,0.8)'));
+  SPR.puff = [18, 13, 8].map(r => sprGlow(g => { g.fillStyle = '#bbb'; circle(g, 32, 32, r); g.fillStyle = '#eee'; circle(g, 29, 29, r / 2); }));
+  SPR.blood = [16, 12, 7].map(r => sprGlow(g => { g.fillStyle = '#c00'; circle(g, 32, 32, r); circle(g, 20, 40, r / 2); g.fillStyle = '#700'; circle(g, 40, 38, r / 2); }));
   SPR.boom = [
-    spr(g => glow(g, 32, 32, 30, '#ffe060', 'rgba(255,60,0,0.9)')),
-    spr(g => { glow(g, 32, 32, 30, '#ff9020', 'rgba(160,0,0,0.9)'); glow(g, 20, 26, 12, '#ffd040', 'rgba(255,60,0,0.8)'); }),
-    spr(g => { g.fillStyle = '#6a2a10'; circle(g, 32, 32, 26); g.fillStyle = '#442'; circle(g, 22, 24, 12); circle(g, 42, 30, 12); }),
+    sprGlow(g => glow(g, 32, 32, 30, '#ffe060', 'rgba(255,60,0,0.9)')),
+    sprGlow(g => { glow(g, 32, 32, 30, '#ff9020', 'rgba(160,0,0,0.9)'); glow(g, 20, 26, 12, '#ffd040', 'rgba(255,60,0,0.8)'); }),
+    sprGlow(g => { g.fillStyle = '#6a2a10'; circle(g, 32, 32, 26); g.fillStyle = '#442'; circle(g, 22, 24, 12); circle(g, 42, 30, 12); }),
   ];
 }
 
@@ -1058,13 +1139,13 @@ function renderWorld() {
       for (let x = 0; x < W; x++) {
         const cx = fx | 0, cy = fy | 0;
         if (cx >= 0 && cy >= 0 && cx < MW && cy < MH && outdoor[cy * MW + cx]) buf32[o++] = SKY[sr + skyCol[x]];
-        else buf32[o++] = shade(T[(((fy * 64) | 0) & 63) * 64 + (((fx * 64) | 0) & 63)], f);
+        else buf32[o++] = shade(T[((((fy * TS) | 0) & TM) << TSH) + (((fx * TS) | 0) & TM)], f);
         fx += stX; fy += stY;
       }
       continue;
     }
     for (let x = 0; x < W; x++) {
-      buf32[o++] = shade(T[(((fy * 64) | 0) & 63) * 64 + (((fx * 64) | 0) & 63)], f);
+      buf32[o++] = shade(T[((((fy * TS) | 0) & TM) << TSH) + (((fx * TS) | 0) & TM)], f);
       fx += stX; fy += stY;
     }
   }
@@ -1103,9 +1184,9 @@ function renderWorld() {
     if (!t) continue;
     const lineH = VH / dist, top = HOR - lineH * (1 - camZ), bot = HOR + lineH * camZ;
     const y0 = Math.max(0, Math.ceil(top)), y1 = Math.min(VH, Math.ceil(bot));
-    const T = TEX[t], tx = ((wallX * 64) | 0) & 63, step = 64 / lineH, f = light(dist) * (side ? 0.8 : 1);
+    const T = TEX[t], tx = ((wallX * TS) | 0) & TM, step = TS / lineH, f = light(dist) * (side ? 0.8 : 1);
     let tp = (y0 - top) * step, o = y0 * W + x;
-    for (let y = y0; y < y1; y++) { buf32[o] = shade(T[((tp | 0) & 63) * 64 + tx], f); tp += step; o += W; }
+    for (let y = y0; y < y1; y++) { buf32[o] = shade(T[(((tp | 0) & TM) << TSH) + tx], f); tp += step; o += W; }
   }
   // sprites
   const list = [];
@@ -1145,14 +1226,15 @@ function renderWorld() {
     const cxs = (W / 2) * (1 + sp.tX / sp.tY), left = cxs - size / 2;
     const x0 = Math.max(0, Math.ceil(left)), x1 = Math.min(W, Math.ceil(left + size));
     const y0 = Math.max(0, Math.ceil(top)), y1 = Math.min(VH, Math.ceil(bottom));
-    const step = 64 / size, f = sp.bright ? 1.2 : light(sp.tY), T = sp.T;
+    // Los monstruos y objetos nunca se funden del todo con la oscuridad.
+    const step = TS / size, f = sp.bright ? 1.2 : Math.max(0.5, light(sp.tY) * 1.1), T = sp.T;
     for (let x = x0; x < x1; x++) {
       if (sp.tY >= zbuf[x]) continue;
       const tx = ((x - left) * step) | 0;
-      if (tx < 0 || tx > 63) continue;
+      if (tx < 0 || tx > TM) continue;
       let tp = (y0 - top) * step, o = y0 * W + x;
       for (let y = y0; y < y1; y++) {
-        const c = T[((tp | 0) & 63) * 64 + tx]; tp += step;
+        const c = T[(((tp | 0) & TM) << TSH) + tx]; tp += step;
         if (c & 0xff000000) {
           if (sp.fuzz) { // espectro: distorsiona lo que hay detrás
             const src = o + (((Math.random() * 3) | 0) - 1) * W * 2;
@@ -1324,7 +1406,6 @@ function textC(t, y, font, col, shadow) {
 const isTouch = matchMedia('(pointer: coarse)').matches;
 const blink = () => ((G.titleT * 2) | 0) % 2 === 0;
 function drawTitle() {
-  drawFire();
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, W, H);
   textC('INFIERNO', 56, 'bold 40px Impact, monospace', '#d01010', '#300');
   textC('J J', 88, 'bold 30px Impact, monospace', '#ffb000', '#420');
@@ -1339,7 +1420,6 @@ function drawTitle() {
 }
 function fmtTime(t) { t = Math.floor(t); return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); }
 function drawInter() {
-  drawFire();
   ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, W, H);
   textC(LEVELS[G.level].name, 40, 'bold 13px monospace', '#ffb000');
   textC('NIVEL COMPLETADO', 66, 'bold 20px Impact, monospace', '#e01010');
@@ -1351,7 +1431,6 @@ function drawInter() {
   if (blink()) textC(isTouch ? 'TOCA PARA CONTINUAR' : 'PULSA ENTER PARA CONTINUAR', 196, 'bold 11px monospace', '#ffd060');
 }
 function drawWin() {
-  drawFire();
   ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(0, 0, W, H);
   textC('¡VICTORIA!', 70, 'bold 36px Impact, monospace', '#ffb000', '#420');
   textC('Has derrotado al Barón y limpiado el infierno de JJ.', 104, 'bold 10px monospace', '#fff');
@@ -1359,10 +1438,13 @@ function drawWin() {
   if (blink()) textC(isTouch ? 'TOCA PARA VOLVER A JUGAR' : 'PULSA ENTER PARA VOLVER A JUGAR', 196, 'bold 11px monospace', '#ffd060');
 }
 function render() {
-  if (G.state === 'title') return drawTitle();
-  if (G.state === 'inter') return drawInter();
-  if (G.state === 'win') return drawWin();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const screen = { title: drawTitle, inter: drawInter, win: drawWin }[G.state];
+  if (screen) { drawFire(); logical(screen); return; }
   renderWorld();
+  logical(drawOverlay);
+}
+function drawOverlay() {
   drawWeapon();
   if (G.flashR > 0) { ctx.fillStyle = `rgba(255,0,0,${G.flashR * 0.55})`; ctx.fillRect(0, 0, W, VH); }
   if (G.flashY > 0) { ctx.fillStyle = `rgba(255,220,60,${G.flashY * 0.35})`; ctx.fillRect(0, 0, W, VH); }
